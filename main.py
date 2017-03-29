@@ -11,285 +11,259 @@
 @file: main.py
 @time: 2016/1/9/0009 14:00
 """
-import time
+
+import logging
 import wx
 import wx.html2 as webview
-
 import Jincin
+from __init__ import __version__, __update__, __author__, __title__
+from logic_controller import LogicController
 
+HOMEURL = "http://sso.njcedu.com/"
+ABOUT = (u"Version    : {version}\n"
+         u"Update     : {update} \n"
+         u"Developer  : {author}"
+         .format(**dict(version=__version__, update=__update__, author=__author__)))
+logging.basicConfig(level=logging.DEBUG)
 autoLearn = False
-version = "4.0.1"
-aboutContent = u"Version: "+unicode(version)+u"\nUpdate - 2016/11/23\nDeveloper：Qin"
-
-class Panel(wx.Panel):
-    def __init__(self, parent=None, frame=None):
-        wx.Panel.__init__(self, parent, -1)
-
-        self.current = "http://www.jincin.com"
-        self.frame = frame
-        if frame:
-            self.titleBase = frame.GetTitle()
-
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        btnSizer = wx.BoxSizer(wx.HORIZONTAL)
-        self.wv = webview.WebView.New(self)
-        # self.Bind(webview.EVT_WEBVIEW_NAVIGATING, self.OnWebViewNavigating, self.wv)
-        self.Bind(webview.EVT_WEBVIEW_LOADED, self.OnWebViewLoaded, self.wv)
-        self.Bind(webview.EVT_WEBVIEW_NEWWINDOW,self.openNewWindow,self.wv)
+CAN_CHANGE = 1
+CAN_NOT_CHANGE = 0
 
 
-        btn = wx.Button(self, -1, u"主页", style=wx.BU_EXACTFIT)
-        self.Bind(wx.EVT_BUTTON, self.OnOpenButton, btn)
-        btnSizer.Add(btn, 0, wx.EXPAND|wx.ALL, 2)
+class WebPanel(wx.Panel):
+    def __init__(self, parent=None):
+        super(WebPanel, self).__init__(parent=parent)
+        self.current_url = HOMEURL
+        sizer = wx.BoxSizer(orient=wx.VERTICAL)
+        btn_sizer = wx.BoxSizer(orient=wx.HORIZONTAL)
+        self.web_view = webview.WebView.New(parent=self)
+        self.Bind(event=webview.EVT_WEBVIEW_LOADED, handler=self.webview_loaded, source=self.web_view)
+        self.Bind(event=webview.EVT_WEBVIEW_NEWWINDOW, handler=self.open_new_window, source=self.web_view)
 
-        btn = wx.Button(self, -1, u"<--", style=wx.BU_EXACTFIT)
-        self.Bind(wx.EVT_BUTTON, self.OnPrevPageButton, btn)
-        btnSizer.Add(btn, 0, wx.EXPAND|wx.ALL, 2)
-        self.Bind(wx.EVT_UPDATE_UI, self.OnCheckCanGoBack, btn)
+        btn_home = wx.Button(parent=self, label=u"主页", style=wx.BU_EXACTFIT)
+        self.Bind(event=wx.EVT_BUTTON, handler=self.click_home_button, source=btn_home)
+        btn_sizer.Add(item=btn_home, proportion=CAN_NOT_CHANGE, flag=wx.EXPAND | wx.ALL, border=2)
 
-        btn = wx.Button(self, -1, u"-->", style=wx.BU_EXACTFIT)
-        self.Bind(wx.EVT_BUTTON, self.OnNextPageButton, btn)
-        btnSizer.Add(btn, 0, wx.EXPAND|wx.ALL, 2)
-        self.Bind(wx.EVT_UPDATE_UI, self.OnCheckCanGoForward, btn)
+        btn_back_page = wx.Button(parent=self, label=u"<--", style=wx.BU_EXACTFIT)
+        self.Bind(event=wx.EVT_BUTTON, handler=self.click_preview_page_button, source=btn_back_page)
+        self.Bind(event=wx.EVT_UPDATE_UI, handler=self.check_can_goback, source=btn_back_page)
+        btn_sizer.Add(item=btn_back_page, proportion=CAN_NOT_CHANGE, flag=wx.EXPAND | wx.ALL, border=2)
 
-        btn = wx.Button(self, -1, u"停止", style=wx.BU_EXACTFIT)
-        self.Bind(wx.EVT_BUTTON, self.OnStopButton, btn)
-        btnSizer.Add(btn, 0, wx.EXPAND|wx.ALL, 2)
+        btn_next_page = wx.Button(parent=self, label=u"-->", style=wx.BU_EXACTFIT)
+        self.Bind(event=wx.EVT_BUTTON, handler=self.click_next_page_button, source=btn_next_page)
+        self.Bind(event=wx.EVT_UPDATE_UI, handler=self.check_can_goforward, source=btn_next_page)
+        btn_sizer.Add(item=btn_next_page, proportion=CAN_NOT_CHANGE, flag=wx.EXPAND | wx.ALL, border=2)
 
-        btn = wx.Button(self, -1, u"刷新", style=wx.BU_EXACTFIT)
-        self.Bind(wx.EVT_BUTTON, self.OnRefreshPageButton, btn)
-        btnSizer.Add(btn, 0, wx.EXPAND|wx.ALL, 2)
+        btn_stop = wx.Button(parent=self, label=u"停止", style=wx.BU_EXACTFIT)
+        self.Bind(event=wx.EVT_BUTTON, handler=self.click_stop_button, source=btn_stop)
+        btn_sizer.Add(item=btn_stop, proportion=CAN_NOT_CHANGE, flag=wx.EXPAND | wx.ALL, border=2)
 
-        txt = wx.StaticText(self, -1, u"地址:")
-        btnSizer.Add(txt, 0, wx.CENTER|wx.ALL, 2)
+        btn_refresh = wx.Button(parent=self, label=u"刷新", style=wx.BU_EXACTFIT)
+        self.Bind(event=wx.EVT_BUTTON, handler=self.click_refresh_page_button, source=btn_refresh)
+        btn_sizer.Add(btn_refresh, proportion=CAN_NOT_CHANGE, flag=wx.EXPAND | wx.ALL, border=2)
 
-        self.location = wx.ComboBox(
-            self, -1, "", style=wx.CB_DROPDOWN|wx.TE_PROCESS_ENTER)
-        # self.location.AppendItems(['http://www.baidu.com',
-        #                            'http://www',
-        #                            'http://google.com'])
-        self.Bind(wx.EVT_COMBOBOX, self.OnLocationSelect, self.location)
-        self.location.Bind(wx.EVT_TEXT_ENTER, self.OnLocationEnter)
-        btnSizer.Add(self.location, 1, wx.EXPAND|wx.ALL, 2)
+        url_bar_title = wx.StaticText(parent=self, label=u"地址:")
+        btn_sizer.Add(url_bar_title, proportion=CAN_NOT_CHANGE, flag=wx.CENTER | wx.ALL, border=2)
 
+        self.location = wx.ComboBox(parent=self, value=wx.EmptyString, style=wx.CB_DROPDOWN | wx.TE_PROCESS_ENTER)
+        self.location.Bind(event=wx.EVT_TEXT_ENTER, handler=self.enter_location)
+        self.Bind(event=wx.EVT_COMBOBOX, handler=self.select_location, source=self.location)
+        btn_sizer.Add(item=self.location, proportion=CAN_CHANGE, flag=wx.EXPAND | wx.ALL, border=2)
 
-        sizer.Add(btnSizer, 0, wx.EXPAND)
-        sizer.Add(self.wv, 1, wx.EXPAND)
-        self.SetSizer(sizer)
+        sizer.Add(item=btn_sizer, proportion=CAN_NOT_CHANGE, flag=wx.EXPAND)
+        sizer.Add(item=self.web_view, proportion=CAN_CHANGE, flag=wx.EXPAND)
+        self.SetSizer(sizer=sizer)
 
-        self.wv.LoadURL(self.current)
+        self.web_view.LoadURL(url=self.current_url)
 
-    def openNewWindow(self,evt):
-        # print evt.GetURL()
-        self.current=evt.GetURL()
-        self.location.SetValue(self.current)
-        self.wv.LoadURL(self.current)
+    def open_new_window(self, event):
+        # print event.GetURL()
+        self.current_url = event.GetURL()
+        self.location.SetValue(value=self.current_url)
+        self.web_view.LoadURL(url=self.current_url)
 
-    def ShutdownDemo(self):
-        # put the frame title back
-        if self.frame:
-            self.frame.SetTitle(self.titleBase)
-
-
-    # WebView events
-    def OnWebViewNavigating(self, evt):
-        # this event happens prior to trying to get a resource
-        if evt.GetURL() == 'http://www.microsoft.com/':
-            if wx.MessageBox("Are you sure you want to visit Microsoft?",
-                             style=wx.YES_NO|wx.ICON_QUESTION) == wx.NO:
-                # This is how you can cancel loading a page.
-                evt.Veto()
-
-    def OnWebViewLoaded(self, evt):
+    def webview_loaded(self, event):
         # The full document has loaded
-        self.current = evt.GetURL()
-        # print evt.GetTarget()
-        self.location.SetValue(self.current)
+        logging.debug(u"页面加载完成:%s" % event.GetURL())
+        self.current_url = event.GetURL()
+        self.location.SetValue(value=self.current_url)
 
-
-    # Control bar events
-    def OnLocationSelect(self, evt):
+    def select_location(self, event=None):
+        # Control bar events
         url = self.location.GetStringSelection()
-        self.wv.LoadURL(url)
+        self.web_view.LoadURL(url=url)
 
-    def OnLocationEnter(self, evt):
-
+    def enter_location(self, event=None):
         url = self.location.GetValue()
         self.location.Append(url)
-        self.wv.LoadURL(url)
+        self.web_view.LoadURL(url)
 
+    def click_home_button(self, event=None):
+        self.location.SetValue(HOMEURL)
+        self.web_view.LoadURL(HOMEURL)
 
-    def OnOpenButton(self, event):
-        self.location.SetValue("http://www.jincin.com")
-        self.wv.LoadURL("http://www.jincin.com")
-
-    def OnPrevPageButton(self, event):
-        self.wv.GoBack()
-
-    def OnNextPageButton(self, event):
-        self.wv.GoForward()
-
-    def OnCheckCanGoBack(self, event):
-        event.Enable(self.wv.CanGoBack())
-
-    def OnCheckCanGoForward(self, event):
-        event.Enable(self.wv.CanGoForward())
-
-    def OnStopButton(self, evt):
-        self.wv.Stop()
-
-    def OnRefreshPageButton(self, evt):
+    def click_refresh_page_button(self, event=None):
         # print self.wv.GetPageSource()
-        self.wv.Reload()
-    def getCookie(self):
+        self.web_view.Reload()
+
+    def click_preview_page_button(self, event=None):
+        self.web_view.GoBack()
+
+    def click_next_page_button(self, event=None):
+        self.web_view.GoForward()
+
+    def click_stop_button(self, event=None):
+        self.web_view.Stop()
+
+    def check_can_goback(self, event=None):
+        event.Enable(self.web_view.CanGoBack())
+
+    def check_can_goforward(self, event=None):
+        event.Enable(self.web_view.CanGoForward())
+
+    def run_script(self, script):
+        self.web_view.RunScript(script)
+
+    def get_page_source_code(self):
+        return self.web_view.GetPageSource()
+
+    def get_webview_status(self):
+        return self.web_view.IsBusy()
+
+    @property
+    def cookies(self):
         # self.wv.RunScript("document.title = document.cookie.split(\"; \")")
-        prev_title = self.wv.GetCurrentTitle()
-        self.wv.RunScript("document.title = document.cookie.split(\"; \")")
-        cookies = self.wv.GetCurrentTitle()
-        self.wv.RunScript("document.title = %s" % prev_title)
+        prev_title = self.web_view.GetCurrentTitle()
+        self.web_view.RunScript("document.title = document.cookie.split(\"; \")")
+        cookies = self.web_view.GetCurrentTitle()
+        self.web_view.RunScript("document.title = %s" % prev_title)
         return cookies
 
-    def runScript(self,script):
-        self.wv.RunScript(script)
+    def get_cookies(self):
+        return self.cookies
 
-    def getPageSource2(self):
-        prev_title = self.wv.GetCurrentTitle()
-        self.wv.RunScript("document.title = document.documentElement.outerHTML")
-        pagesource = self.wv.GetCurrentTitle()
-        self.wv.RunScript("document.title = %s" % prev_title)
-        return  pagesource
 
-    def getPageSource(self):
-        return self.wv.GetPageSource()
+class MainFrame(wx.Frame):
+    def __init__(self, parent, title):
+        (self.display_length_, self.display_height_) = wx.GetDisplaySize()
+        self.frame_width_ = self.display_length_ * 90 / 100
+        self.frame_height_ = self.display_height_ * 90 / 100
+        self.answer_panel_width_ = self.frame_width_ * 15 / 100
+        super(MainFrame, self).__init__(parent=parent, title=title, size=(self.frame_width_, self.frame_height_))
 
-    def getStatus(self):
-        return self.wv.IsBusy()
+        self.splitter = wx.SplitterWindow(parent=self, style=wx.SP_LIVE_UPDATE)
+        self.splitter.SetMinimumPaneSize(min=100)
 
-    def getUrl(self,evt):
-        return evt.GetURL()
+        self.web_panel = WebPanel(parent=self.splitter)
+        self.answer_panel = wx.Panel(parent=self.splitter)
+        self.answers_box = wx.BoxSizer(orient=wx.VERTICAL)
+        self.answers_box.Add(item=self.answer_panel)
 
-class MySplitter(wx.SplitterWindow):
-    def __init__(self, parent):
-        wx.SplitterWindow.__init__(self, parent, style = wx.SP_LIVE_UPDATE,)
-class MyFrame(wx.Frame):
-    def __init__(self,parent,title):
-        wx.Frame.__init__(self, parent = parent, title = title, size=(1200,650))
-        self.Centre()
-        self.Sizer = wx.BoxSizer(wx.VERTICAL)
+        self.splitter.SplitVertically(window1=self.answer_panel, window2=self.web_panel,
+                                      sashPosition=self.answer_panel_width_)
 
-        self.splitter = MySplitter(self)
-        self.splitter.SetMinimumPaneSize(100)
-        self.leftPanel=wx.Panel(self.splitter)
-        self.leftBox = wx.BoxSizer(wx.VERTICAL)
-        self.leftBox.Add(self.leftPanel)
-        self.rightPanel = Panel(self.splitter)
-        self.splitter.SplitVertically(self.leftPanel, self.rightPanel, 150)
-        self.Sizer.Add(self.splitter, 1, wx.EXPAND)
-        b1 = wx.Button(self, label=u"一键答题")
-        self.Bind(wx.EVT_BUTTON, self.OnSearchAnswer, b1)
-        b2 = wx.Button(self, label=u"自动学习")
-        self.Bind(wx.EVT_BUTTON, self.learnAnswers, b2)
-        # self.editCookie = wx.TextCtrl(self, value="", size=(300, 30))
-        # self.b3=wx.Button(self,label=u'一键看视频')
-        # self.Bind(wx.EVT_BUTTON,self.viewVideo,self.b3)
+        self.Sizer = wx.BoxSizer(orient=wx.VERTICAL)
+        self.Sizer.Add(item=self.splitter, proportion=CAN_CHANGE, flag=wx.EXPAND)
 
-        self.btnbox = wx.BoxSizer(wx.HORIZONTAL)
-        self.btnbox.Add(b1, 0, wx.LEFT|wx.RIGHT, 5)
+        auto_answer_button = wx.Button(parent=self, label=u"一键答题")
+        auto_crawl_answers_button = wx.Button(parent=self, label=u"自动学习")
+        self.Bind(event=wx.EVT_BUTTON, handler=self.click_search_answer, source=auto_answer_button)
+        self.Bind(event=wx.EVT_BUTTON, handler=self.learn_answers, source=auto_crawl_answers_button)
+
+        self.buttons_box = wx.BoxSizer(orient=wx.HORIZONTAL)
+        self.buttons_box.Add(item=auto_answer_button, proportion=CAN_NOT_CHANGE, flag=wx.LEFT | wx.RIGHT, border=5)
         if autoLearn:
-            self.btnbox.Add(b2, 0, wx.LEFT|wx.RIGHT, 5)
-        # self.btnbox.Add(self.editCookie, 0, wx.LEFT | wx.RIGHT, 5)
-        # self.btnbox.Add(self.b3, 0, wx.LEFT|wx.RIGHT, 5)
-        # self.btnbox.Add(self.b4, 0, wx.LEFT|wx.RIGHT, 5)
-        self.Sizer.Add(self.btnbox, 0, wx.TOP|wx.BOTTOM, 5)
-        # self.statusbar = self.CreateStatusBar()
-        # self.statusbar.Destroy()
-        filemenu= wx.Menu()
-        menuAbout= filemenu.Append(wx.ID_ABOUT, u"&关于",u" 关于本程序")
-        self.Bind(wx.EVT_MENU, self.OnAbout, menuAbout)
-        menuFB = filemenu.Append(wx.ID_OPEN, u"&反馈",u" 反馈")
-        self.Bind(wx.EVT_MENU, self.feedBack, menuFB)
-        menuBar = wx.MenuBar()
-        menuBar.Append(filemenu,u"&帮助")
-        self.SetMenuBar(menuBar)
+            self.buttons_box.Add(item=auto_crawl_answers_button, proportion=CAN_NOT_CHANGE, flag=wx.LEFT | wx.RIGHT,
+                                 border=5)
+        self.Sizer.Add(item=self.buttons_box, proportion=CAN_NOT_CHANGE, flag=wx.TOP | wx.BOTTOM, border=5)
 
-    # def viewVideo(self,evt):
-    #     self.rightPanel.runScript("")
-    def OnSearchAnswer(self,evt):
-        self.rightPanel.runScript('document.body.onselectstart="";document.body.oncopy="";document.body.oncut="";document.body.oncontextmenu="";')
+        menu = wx.Menu()
+        menu_about = menu.Append(id=wx.ID_ABOUT, text=u"&关于", help=u" 关于本程序")
+        menu_feedback = menu.Append(id=wx.ID_OPEN, text=u"&反馈", help=u" 反馈")
+        self.Bind(event=wx.EVT_MENU, handler=self.show_about, source=menu_about)
+        self.Bind(event=wx.EVT_MENU, handler=self.show_feedback, source=menu_feedback)
+        menu_bar = wx.MenuBar()
+        menu_bar.Append(menu, u"&帮助")
+        self.SetMenuBar(menu_bar)
+
+        self.Centre()
+
+    def show_on_answer_panel(self, content2show):
+        text = wx.StaticText(parent=self.answer_panel, label=content2show)
+        text.SetFont(wx.Font(pointSize=self.answer_panel_width_/10, family=wx.ROMAN, style=wx.NORMAL, weight=wx.BOLD))
+        self.answers_box.Add(item=text, proportion=CAN_NOT_CHANGE, border=5)
+
+    def show_on_statusbar(self, message):
         if not self.GetStatusBar():
             self.statusbar = self.CreateStatusBar()
-        self.statusbar.SetStatusText(u"正在分析.")
-        wx.Sleep(1)
-        self.statusbar.SetStatusText(u"正在分析..")
-        wx.Sleep(1)
-        self.statusbar.SetStatusText(u"正在分析...")
-        print self.rightPanel.getCookie()
-        page =  self.rightPanel.getPageSource()
-        answerList = Jincin.getAnswerList(page)
-        if not answerList:
-            self.statusbar.SetStatusText(u"分析过程发生错误！")
-            dlg = wx.MessageDialog(self, u"未找到题目！\n请确保在 考! 试! 页! 面! 点击一键答题！！！ \n\n已知问题：个别Win7系统可能无法解析，请更换电脑后再次尝试！\n温馨提示：Win8/Win10成功率更高哦！\n", "Error", wx.ICON_ERROR)
-            dlg.ShowModal()  # Show it
-            dlg.Destroy()  # finally destroy it when finished.
-            return
-        # print answerList
-        # print 1
-        self.statusbar.SetStatusText(u"正在匹配.")
-        self.statusbar.SetStatusText(u"正在匹配..")
-        time.sleep(1)
-        self.statusbar.SetStatusText(u"正在匹配...")
-        time.sleep(1)
-        self.statusbar.SetStatusText(u"匹配完成！")
+        self.statusbar.SetStatusText(message)
 
-        string='  01.  '
-        index=1
-        QuestionIds=[]
-        QuestionAnswer=[]
-        for id,answer in answerList:
-            string=string+answer+"  "
-            # print id,answer
-            QuestionIds.append(id)
-            QuestionAnswer.append(answer)
-            if index % 20 == 0:
-                string = string + "\n  "
-            if index%5==0 and index<len(answerList)-1:
-                string = string+"\n  "+str(index+1).zfill(2)+".  "
-            index = index+1
-            # print index
-            strQuestionIds=",".join(QuestionIds)
-            strQuestionAnswer=",".join(QuestionAnswer)
-        script = 'var strQuestionIds0="%s";var strQuestionAnswer0="%s";var strQuestionAnsers=strQuestionAnswer0.split(",");var questionIds=strQuestionIds0.split(",");var objRightCount=0;if(strQuestionAnsers.length>0){for(var i=0;i<questionIds.length;i++){if(strQuestionAnsers[i]!="0"){var name="radio_"+questionIds[i];var objs=document.getElementsByName(name);for(var j=0;j<objs.length;j++){if(objs[j].value==strQuestionAnsers[i]){objs[j].checked=true;var span=document.getElementById("correctAnswer_"+questionIds[i]);var span_right=document.getElementById("span_right_"+questionIds[i]);var span_wrong=document.getElementById("span_wrong_"+questionIds[i]);if(span!=null&&span_right!=null&&span_wrong!=null){if(span.innerText==strQuestionAnsers[i]){span_right.style.display="";span_wrong.style.display="none";objRightCount++;}else{span_right.style.display="none";span_wrong.style.display="";}}}}}}}doCommit(1,0);'%(strQuestionIds,strQuestionAnswer)
-        print script
-        self.rightPanel.runScript(script)
-        text = wx.StaticText(self.leftPanel,-1,string)
-        text.SetFont(wx.Font(pointSize=14, family=wx.ROMAN, style=wx.NORMAL, weight=wx.BOLD, underline=False,faceName="", encoding=wx.FONTENCODING_DEFAULT))
-        self.leftBox.Add(text, 0, wx.LEFT|wx.RIGHT, 5)
-        self.statusbar.Destroy()
-        dlg = wx.MessageDialog(self, u"答案仅供参考！\n\n答题完毕后请随机抽取3-5个题目，检查与网上答案是否一致！\n", u"友情提示(●'◡'●)", wx.OK)
-        dlg.ShowModal()  # Shows it
-        dlg.Destroy()  # finally destroy it when finished.
-    def learnAnswers(self,evt):
+    def show_dialog(self, messgage, caption, style):
+        dlg = wx.MessageDialog(parent=self, message=messgage, caption=caption, style=style)
+        dlg.ShowModal()
+        dlg.Destroy()
+
+    def click_search_answer(self, event=None):
+        page_source_code = self.web_panel.get_page_source_code()
+        _logic_controller = LogicController(parent=self, page_source_code=page_source_code)
+        _logic_controller.enable_web_copy()
+        get_answers_result = _logic_controller.get_answers()
+        logging.debug("result:%s" % str(get_answers_result))
+        if get_answers_result:
+            self.show_on_statusbar(message=u"匹配完成！")
+            self.show_on_answer_panel("1")
+            '''
+                    show_answers_on_answer_panel
+                    show_success_dialog
+                    '''
+            _logic_controller.auto_select_answers(func=self.web_panel.run_script)
+            from __init__ import _HAS_FUND_MESSAGE
+            self.show_dialog(messgage=_HAS_FUND_MESSAGE, caption=u"友情提示(●'◡'●)", style=wx.OK)
+        else:
+            self.show_on_statusbar(message=u"分析过程发生错误！")
+            from __init__ import _NOT_FIND_MESSAGE
+            self.show_dialog(messgage=_NOT_FIND_MESSAGE, caption=u"Error", style=wx.ICON_ERROR)
+
+
+            # string = '  01.  '
+            # index = 1
+            # question_ids = []
+            # question_answer = []
+            # for question_id, answer in answer_list:
+            #     string = string + answer + "  "
+            #     # print id,answer
+            #     question_ids.append(question_id)
+            #     question_answer.append(answer)
+            #     if index % 20 == 0:
+            #         string = string + "\n  "
+            #     if index % 5 == 0 and index < len(answer_list) - 1:
+            #         string = string + "\n  " + str(index + 1).zfill(2) + ".  "
+            #     index += 1
+            #     # print index
+            #     str_question_ids = ",".join(question_ids)
+            #     str_question_answer = ",".join(question_answer)
+
+
+
+            # self.statusbar.Destroy()
+
+    def learn_answers(self, evt):
         if not autoLearn:
-            dlg = wx.MessageDialog(self, u"自动学习功能可以忽略",u"", wx.OK)
+            dlg = wx.MessageDialog(self, u"自动学习功能可以忽略", u"", wx.OK)
             dlg.ShowModal()  # Shows it
             dlg.Destroy()  # finally destroy it when finished.
-        page = self.rightPanel.getPageSource()
+        page = self.web_panel.get_page_source_code()
         Jincin.collectAnswer(page)
-    def scrapeAnswers(self,evt):
-        page = self.rightPanel.getPageSource()
 
-    def OnAbout(self,e):
-        # Create a message dialog box
-        dlg = wx.MessageDialog(self, aboutContent, u"关于本程序", wx.OK)
-        dlg.ShowModal() # Shows it
-        dlg.Destroy() # finally destroy it when finished.
-    def feedBack(self,e):
-        dlg = wx.MessageDialog(self, u" https://github.com/Qinet/JincinExamHelper/issues", u"反馈", wx.OK)
-        dlg.ShowModal() # Shows it
-        dlg.Destroy() # finally destroy it when finished.
+    def show_about(self, evt):
+        self.show_dialog(messgage=ABOUT, caption=u"关于本程序", style=wx.OK)
+
+    def show_feedback(self, evt):
+        self.show_dialog(messgage=u"https://github.com/Qinet/JincinExamHelper/issues", caption=u"反馈", style=wx.OK)
+
 
 if __name__ == '__main__':
-    app=wx.App()
-    frame = MyFrame(None,u"锦诚网助手")
+    app = wx.App()
+    frame = MainFrame(None, u"%s" % __title__)
     frame.Show()
     app.MainLoop()

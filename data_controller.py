@@ -1,120 +1,150 @@
 #!/usr/bin/env python
 # encoding: utf-8
-import os
+import functools
 import re
 import json
-
-import sys
-
 import requests
 
-def getLocalAnswer(id):
-    content = {}
-    try:
-        f = open("learn_db", 'r')
-        line = f.readline().strip()
-        while line:
-            a = json.loads(line)
-            content[a['id']] = a
-            line = f.readline().strip()
-    except:
-        f=""
-    finally:
-        if f: f.close()
-    if content.has_key(id):
-        answer = content[id]['answer'].encode("utf-8")
-        return answer
-    return "?"
+import local_question_bank
+from __init__ import logging
+from __init__ import find_question_regex
+from __init__ import online_question_bank_url
 
-def getAnswerList(page):
-    #print isinstance(page,unicode)
-    questions = re.findall('<li class="ks_tm.*?" id="(\d*?)">(.*?)\n?</li>',page.encode("utf-8"))
-    # print questions
-    print "解析试卷问题成功！"
-    answerList = []
-    # print page
-    # f=open("test.html",'w')
-    # f.write(page.encode("utf-8"))
-    # f.close()
-    db = loadAnswerDb()
-    i,j=0,0
-    for id,question in questions:
-        # print question
-        if db.has_key(id):
-            answer = db[id]['answer'].encode("utf-8")
-            # print "from db"
-            i+=1
+
+class ConnectionError(BaseException):
+    pass
+
+class ParsePageError(BaseException):
+    pass
+class DataController(object):
+    def __init__(self, page_source_code):
+        """
+        :rtype:DataController
+        """
+        self.page_source_code = self.decode2unicode(page_source_code)
+        self.question_bank = self.__load_question_bank_unicode()
+        self.question_id_group = self.__question_id_group
+        self.answer_choice_group = self.__answer_choice_group
+
+    @staticmethod
+    def decode2unicode(text2deecode):
+        if isinstance(text2deecode, unicode):
+            return text2deecode
+
+        # TODO Add more frequently used charsets in charset_group when you need them.
+        charset_group = ["utf-8", "gbk", "gb2312", "cp936"]
+        for charset in charset_group:
+            try:
+                return text2deecode.decode(charset)
+            except UnicodeDecodeError:
+                pass
+            except:
+                raise
         else:
-            answer = getLocalAnswer(id)
-            # print "from old_db"
-            j+=1
-        # print id+" "+question+" "+answer
-        answerList.append((id,answer))
-    # print answerList
-    # print i,j
-    return answerList
+            logging.error("other charset error")
+            raise UnicodeDecodeError
 
-def collectAnswer(page):
-    page = page.encode("utf-8")
-    questions = re.findall('jsonQuestion=(.+?);\n\t\t\t \t\tshowQuestion\(jsonQuestion,(\d+?)\);', page)
-    print questions
-    rightAnswerList = re.findall('id="correctAnswer_(\d+?)".*?>(\w)</span>', page)
-    print rightAnswerList
-    temp = []
-    rightTemp = {}
-    for id, answer in rightAnswerList:
-        rightTemp[id] = answer
-    import json
-    for question,id in questions:
+    @property
+    def __question_id_group(self):
+        '''
+        :return: tuple(question1_id, question2_id, ...)
+        '''
+        question_id_group = re.findall(find_question_regex, self.page_source_code)
+        if question_id_group:
+            logging.debug("Parse Question Success！")
+            return tuple(zip(*question_id_group)[0])
+        else:
+            logging.debug("find_question_regex:%s" % find_question_regex)
+            logging.error("Can not find question on page source code.")
+            return ParsePageError
+
+    @__question_id_group.setter
+    def __question_id_group(self,object):
+        self.__question_id_group = object
+
+    def parse_page_checker(self):
+        def decorater(func):
+            def wrappedfunc(self, *args, **kwargs):
+                if not self.question_id_group:
+                    print "sdsds"
+                return func(self, *args, **kwargs)
+
+            return wrappedfunc
+
+        return decorater
+
+    def find_answer(self, question_id=""):
+        for item in self.question_bank:
+            if item.get("id", "") == unicode(question_id):
+                return item
+
+    @property
+    def __answer_choice_group(self):
+        if isinstance(self.question_id_group,ParsePageError):
+            return None
+        __answer_item_group = map(self.find_answer, self.question_id_group)
+        __answer_choice_group = map(lambda x: x["answer"], __answer_item_group)
+        return __answer_choice_group
+
+    @property
+    def question_answer_group(self):
+        '''
+        :return:  [(question1,answer_choice1), (question2,answer_choice2), (...)]
+        '''
+        return zip(self.question_id_group, self.answer_choice_group)
+
+    @staticmethod
+    def __load_question_bank_unicode():
+        '''
+        :return: List [item1, item2, ...]
+        item = {
+            "id": "1010",
+            "answer": "A",
+            "options": [
+                {   "text": "OptionsA",
+                    "name": "A"
+                },
+                {   "text": ""OptionsB,
+                    "name": "B"
+                },
+                {   "text": "OptionsC",
+                    "name": "C"
+                },
+                {   "text": "OptionsD",
+                    "name": "D"
+                }
+            ],
+            "title": "qustion_text"
+        }
+        '''
         try:
-            question = json.loads(question)
-        except:
-            try:
-                question = "".join(question.split())
-                question = json.loads(question)
-            except:
-                question = question.replace("title", "\"title\"")
-                question = question.replace("name", "\"name\"")
-                question = question.replace("text", "\"text\"")
-                question = question.replace("options", "\"options\"")
-                question = "".join(question.split())
-                question = json.loads(question)
-        print question
-        question["id"] = id
-        question["answer"]= rightTemp[id]
-        print question
-        temp.append(question)
-    # for id,content in chooseList:
-    #     content = content.replace("&nbsp;","")
-    #     temp.append((id,content))
-    for i in temp:
-        content = json.dumps(i, ensure_ascii=False).encode("utf-8")
-        with open('learn_db','a') as answerFile:
-            answerFile.write(content+"\n")
-    return 200
+            r = requests.get(url=online_question_bank_url, timeout=10)
+            if r.status_code != 200:
+                logging.debug("online_bank_status_code：%s" % r.status_code)
+                raise ConnectionError
+            else:
+                logging.debug("Load online bank success!")
+            question_bank_temp = r.content
+        except Exception, e:
+            logging.error("Load online bank fail;Error:%s" % e.message)
+            logging.debug("Load local bank...")
+            question_bank_temp = local_question_bank.get()
 
-def loadAnswerDb():
-    content = {}
-    import QuestionBank
-    try:
-        r = requests.get(url="http://newyzu.tk/JinCinExamDb", timeout=5)
-        if r.status_code!=200:
-            raise Exception
-        else:
-            print "成功启用在线题库"
+        index, item = (-1, None)
+        __question_bank_unicode = ""
+        try:
+            __question_bank_unicode = [json.loads(item) for index, item in enumerate(question_bank_temp.split('\n')) if
+                                       item.strip()]
+        except Exception, e:
+            logging.error("Load_online_bank;{0}:{1}".format(index, item))
+            logging.error("Load_online_bank error reason:{0}".format(e.message))
 
-        for line in r.content.split('\n'):
-            try:
-                a = json.loads(line)
-            except:
-                print "error",a
-            content[a['id']] = a
-    except:
-        print "启用本地题库"
-        for line in QuestionBank.get().split('\n'):
-            a = json.loads(line)
-            content[a['id']] = a
+        return __question_bank_unicode
 
-    return content
-if __name__=='__main__':
-    print loadAnswerDb()['1394']['answer']
+
+if __name__ == '__main__':
+    with open(r"source_code", "r") as page_source_code_file:
+        page_source_code = page_source_code_file.read()
+        get_answer = DataController(page_source_code=page_source_code)
+        print get_answer.question_answer_group
+        # print loadAnswerDb()['1394']['answer']
