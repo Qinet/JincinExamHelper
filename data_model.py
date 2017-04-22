@@ -3,6 +3,7 @@
 
 import re
 import json
+import threading
 
 import requests
 
@@ -31,7 +32,7 @@ def _decode2unicode(text2deecode):
         raise UnicodeDecodeError
 
 
-def _load_question_bank_unicode(online_question_bank_url=online_question_bank_url):
+def _load_question_bank_unicode(online_question_bank_url=online_question_bank_url, callback=None):
     """
     :return: List [item1, item2, ...]
     item = {
@@ -55,7 +56,7 @@ def _load_question_bank_unicode(online_question_bank_url=online_question_bank_ur
     }
     """
     try:
-        r = requests.get(url=online_question_bank_url, timeout=10)
+        r = requests.get(url=online_question_bank_url, timeout=15)
         if r.status_code != 200:
             logging.debug("online_bank_status_code：%s" % r.status_code)
             raise ConnectionError
@@ -76,6 +77,8 @@ def _load_question_bank_unicode(online_question_bank_url=online_question_bank_ur
         logging.error("Load_online_bank;{0}:{1}".format(index, item))
         logging.error("Load_online_bank error reason:{0}".format(e.message))
 
+    if callback:
+        callback(__question_bank_unicode)
     return __question_bank_unicode
 
 
@@ -87,10 +90,21 @@ class ParsePageError(BaseException):
     pass
 
 
-class DataModel(object):
-    question_bank = _load_question_bank_unicode(online_question_bank_url)
-    logging.debug(question_bank[:100])
+def load_question_bank(cls):
+    cls.question_bank = _load_question_bank_unicode("local question bank")
 
+    def __set_question_bank(question_bank):
+        cls.question_bank = question_bank
+        logging.debug("use online question bank instead of local bank!")
+
+    t = threading.Thread(target=_load_question_bank_unicode, args=(online_question_bank_url, __set_question_bank))
+    t.start()
+
+    return cls
+
+
+@load_question_bank
+class DataModel(object):
     def __init__(self, page_source_code=""):
         """
         :rtype:DataModel
