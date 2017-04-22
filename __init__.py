@@ -1,15 +1,13 @@
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python
+# encoding: utf-8
+
 import sys
 import logging
 
 logging.basicConfig(level=logging.DEBUG)
-# Syntax sugar.
+
 _ver = sys.version_info
-
-#: Python 2.x?
 is_py2 = (_ver[0] == 2)
-
-#: Python 3.x?
 is_py3 = (_ver[0] == 3)
 
 if is_py2:
@@ -36,5 +34,3 @@ __update__ = u"2016/11/23"
 
 _HAS_FUND_MESSAGE = u"答案仅供参考！\n\n答题完毕后请随机抽取3-5个题目，检查与网上答案是否一致！\n"
 _NOT_FIND_MESSAGE = u"未找到题目！\n"u"请确保在 考! 试! 页! 面! 点击一键答题！！！ \n\n"u"已知问题：个别Win7系统可能无法解析，请更换电脑后再次尝试！\n"u"温馨提示：Win8/Win10成功率更高哦！\n"
-
-

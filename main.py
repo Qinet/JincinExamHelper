@@ -1,23 +1,14 @@
 #!/usr/bin/env python
 # encoding: utf-8
 
-"""
-@version: ??
-@author: Qin
-@license: Apache Licence 
-@contact: caofeng4750@gmail.com
-@site: 
-@software: PyCharm
-@file: main.py
-@time: 2016/1/9/0009 14:00
-"""
-
 import logging
+
 import wx
 import wx.html2 as webview
-import Jincin
+
 from __init__ import __version__, __update__, __author__, __title__
 from logic_controller import LogicController
+from __init__ import _HAS_FUND_MESSAGE, _NOT_FIND_MESSAGE
 
 HOMEURL = "http://sso.njcedu.com/"
 ABOUT = (u"Version    : {version}\n"
@@ -25,7 +16,6 @@ ABOUT = (u"Version    : {version}\n"
          u"Developer  : {author}"
          .format(**dict(version=__version__, update=__update__, author=__author__)))
 logging.basicConfig(level=logging.DEBUG)
-autoLearn = False
 CAN_CHANGE = 1
 CAN_NOT_CHANGE = 0
 
@@ -166,15 +156,11 @@ class MainFrame(wx.Frame):
         self.Sizer.Add(item=self.splitter, proportion=CAN_CHANGE, flag=wx.EXPAND)
 
         auto_answer_button = wx.Button(parent=self, label=u"一键答题")
-        auto_crawl_answers_button = wx.Button(parent=self, label=u"自动学习")
         self.Bind(event=wx.EVT_BUTTON, handler=self.click_search_answer, source=auto_answer_button)
-        self.Bind(event=wx.EVT_BUTTON, handler=self.learn_answers, source=auto_crawl_answers_button)
 
         self.buttons_box = wx.BoxSizer(orient=wx.HORIZONTAL)
         self.buttons_box.Add(item=auto_answer_button, proportion=CAN_NOT_CHANGE, flag=wx.LEFT | wx.RIGHT, border=5)
-        if autoLearn:
-            self.buttons_box.Add(item=auto_crawl_answers_button, proportion=CAN_NOT_CHANGE, flag=wx.LEFT | wx.RIGHT,
-                                 border=5)
+
         self.Sizer.Add(item=self.buttons_box, proportion=CAN_NOT_CHANGE, flag=wx.TOP | wx.BOTTOM, border=5)
 
         menu = wx.Menu()
@@ -185,17 +171,15 @@ class MainFrame(wx.Frame):
         menu_bar = wx.MenuBar()
         menu_bar.Append(menu, u"&帮助")
         self.SetMenuBar(menu_bar)
-
+        self.statusbar = self.CreateStatusBar()
         self.Centre()
 
     def show_on_answer_panel(self, content2show):
         text = wx.StaticText(parent=self.answer_panel, label=content2show)
-        text.SetFont(wx.Font(pointSize=self.answer_panel_width_/10, family=wx.ROMAN, style=wx.NORMAL, weight=wx.BOLD))
+        text.SetFont(wx.Font(pointSize=self.answer_panel_width_ / 10, family=wx.ROMAN, style=wx.NORMAL, weight=wx.BOLD))
         self.answers_box.Add(item=text, proportion=CAN_NOT_CHANGE, border=5)
 
     def show_on_statusbar(self, message):
-        if not self.GetStatusBar():
-            self.statusbar = self.CreateStatusBar()
         self.statusbar.SetStatusText(message)
 
     def show_dialog(self, messgage, caption, style):
@@ -205,55 +189,22 @@ class MainFrame(wx.Frame):
 
     def click_search_answer(self, event=None):
         page_source_code = self.web_panel.get_page_source_code()
-        _logic_controller = LogicController(parent=self, page_source_code=page_source_code)
-        _logic_controller.enable_web_copy()
-        get_answers_result = _logic_controller.get_answers()
-        logging.debug("result:%s" % str(get_answers_result))
-        if get_answers_result:
+        logic_controller = LogicController(parent=self, page_source_code=page_source_code, enable_web_copy=True)
+        parse_answers_result = logic_controller.get_parse_page_status()
+        logging.debug("result:%s" % str(parse_answers_result))
+        if parse_answers_result:
+            self.show_and_select_answer(
+                answer_choice_group_formated=logic_controller.get_answer_choice_group_formated(),
+                auto_select_answer_script=logic_controller.get_auto_select_answer_script())
             self.show_on_statusbar(message=u"匹配完成！")
-            self.show_on_answer_panel("1")
-            '''
-                    show_answers_on_answer_panel
-                    show_success_dialog
-                    '''
-            _logic_controller.auto_select_answers(func=self.web_panel.run_script)
-            from __init__ import _HAS_FUND_MESSAGE
             self.show_dialog(messgage=_HAS_FUND_MESSAGE, caption=u"友情提示(●'◡'●)", style=wx.OK)
         else:
-            self.show_on_statusbar(message=u"分析过程发生错误！")
-            from __init__ import _NOT_FIND_MESSAGE
+            self.show_on_statusbar(message=logic_controller.get_error_message())  # u"分析过程发生错误！"
             self.show_dialog(messgage=_NOT_FIND_MESSAGE, caption=u"Error", style=wx.ICON_ERROR)
 
-
-            # string = '  01.  '
-            # index = 1
-            # question_ids = []
-            # question_answer = []
-            # for question_id, answer in answer_list:
-            #     string = string + answer + "  "
-            #     # print id,answer
-            #     question_ids.append(question_id)
-            #     question_answer.append(answer)
-            #     if index % 20 == 0:
-            #         string = string + "\n  "
-            #     if index % 5 == 0 and index < len(answer_list) - 1:
-            #         string = string + "\n  " + str(index + 1).zfill(2) + ".  "
-            #     index += 1
-            #     # print index
-            #     str_question_ids = ",".join(question_ids)
-            #     str_question_answer = ",".join(question_answer)
-
-
-
-            # self.statusbar.Destroy()
-
-    def learn_answers(self, evt):
-        if not autoLearn:
-            dlg = wx.MessageDialog(self, u"自动学习功能可以忽略", u"", wx.OK)
-            dlg.ShowModal()  # Shows it
-            dlg.Destroy()  # finally destroy it when finished.
-        page = self.web_panel.get_page_source_code()
-        Jincin.collectAnswer(page)
+    def show_and_select_answer(self, answer_choice_group_formated, auto_select_answer_script):
+        self.show_on_answer_panel(answer_choice_group_formated)
+        self.web_panel.run_script(script=auto_select_answer_script)
 
     def show_about(self, evt):
         self.show_dialog(messgage=ABOUT, caption=u"关于本程序", style=wx.OK)
