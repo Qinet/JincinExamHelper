@@ -122,7 +122,6 @@ class WebPanel(wx.Panel):
 
     @property
     def cookies(self):
-        # self.wv.RunScript("document.title = document.cookie.split(\"; \")")
         prev_title = self.web_view.GetCurrentTitle()
         self.web_view.RunScript("document.title = document.cookie.split(\"; \")")
         cookies = self.web_view.GetCurrentTitle()

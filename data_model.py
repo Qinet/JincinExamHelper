@@ -138,12 +138,6 @@ class DataModel(object):
         logging.debug("answer_choice_group:{}".format(__answer_choice_group))
         return __answer_choice_group
 
-    # def get_question_answer_group(self):
-    #     """
-    #     :return:  [(question1,answer_choice1), (question2,answer_choice2), (...)]
-    #     """
-    #     return zip(self.question_id_group, self.answer_choice_group)
-
     def get_auto_select_answer_script(self):
         if not self.parse_page_status:
             return ""
@@ -152,7 +146,6 @@ class DataModel(object):
         return select_answer_script_template % (",".join(self.question_id_group), ",".join(self.answer_choice_group))
 
     def get_answer_choice_group_formated(self):
-        # "".join(self.answer_choice_group)
         if not (self.question_id_group and self.answer_choice_group):
             return ""
         choice_group = self.answer_choice_group
@@ -174,9 +167,4 @@ class DataModel(object):
 
 
 if __name__ == '__main__':
-    # with open(r"source_code", "r") as page_source_code_file:
-    #     page_source_code = page_source_code_file.read()
-    #     get_answer = DataModel(page_source_code=page_source_code)
-    #     print get_answer.get_question_answer_group()
-        # print loadAnswerDb()['1394']['answer']
     pass
